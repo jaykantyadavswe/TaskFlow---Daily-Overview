@@ -1,6 +1,6 @@
 import TaskCard from './TaskCard'
 
-function TaskList({ tasks, onToggle, emptyMessage }) {
+function TaskList({ tasks, onToggle, onEdit, onDelete, emptyMessage }) {
   if (tasks.length === 0) {
     return (
       <div className="rounded-xl border border-dashed border-slate-200 px-5 py-10 text-center">
@@ -13,7 +13,13 @@ function TaskList({ tasks, onToggle, emptyMessage }) {
   return (
     <div className="space-y-2.5">
       {tasks.map((task) => (
-        <TaskCard key={task.id} task={task} onToggle={onToggle} />
+        <TaskCard
+          key={task.id}
+          task={task}
+          onToggle={onToggle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
       ))}
     </div>
   )

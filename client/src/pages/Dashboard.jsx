@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import GroupForm from '../components/GroupForm'
 import Sidebar from '../components/Sidebar'
 import TaskForm from '../components/TaskForm'
 import TaskList from '../components/TaskList'
@@ -17,24 +18,76 @@ tomorrow.setDate(tomorrow.getDate() + 1)
 const tomorrowDate = toLocalDateString(tomorrow)
 
 const initialTasks = [
-  { id: 1, title: 'Finalize the new dashboard design', category: 'Design', due: 'Today · 10:30 AM', dueDate: todayDate, dueTime: '10:30', completed: false },
-  { id: 2, title: 'Review Q4 product roadmap', category: 'Product', due: 'Today · 12:00 PM', dueDate: todayDate, dueTime: '12:00', completed: false },
-  { id: 3, title: 'Share project update with the team', category: 'Planning', due: 'Today · 2:00 PM', dueDate: todayDate, dueTime: '14:00', completed: true },
-  { id: 4, title: 'Prepare notes for the weekly sync', category: 'Planning', due: 'Today · 4:30 PM', dueDate: todayDate, dueTime: '16:30', completed: false },
-  { id: 5, title: 'Organize inspiration board', category: 'Personal', due: 'Tomorrow', dueDate: tomorrowDate, completed: true },
+  { id: 1, title: 'Finalize the new dashboard design', category: 'Design', groupId: 'coding', due: 'Today · 10:30 AM', dueDate: todayDate, dueTime: '10:30', completed: false },
+  { id: 2, title: 'Review Q4 product roadmap', category: 'Product', groupId: 'coding', due: 'Today · 12:00 PM', dueDate: todayDate, dueTime: '12:00', completed: false },
+  { id: 3, title: 'Share project update with the team', category: 'Planning', groupId: 'coding', due: 'Today · 2:00 PM', dueDate: todayDate, dueTime: '14:00', completed: true },
+  { id: 4, title: 'Prepare notes for the weekly sync', category: 'Planning', groupId: 'coding', due: 'Today · 4:30 PM', dueDate: todayDate, dueTime: '16:30', completed: false },
+  { id: 5, title: 'Organize inspiration board', category: 'Personal', groupId: 'personal', due: 'Tomorrow', dueDate: tomorrowDate, completed: true },
+  { id: 6, title: 'Take a morning walk', category: 'Personal', groupId: 'health', due: 'Today · 7:00 AM', dueDate: todayDate, dueTime: '07:00', completed: false },
+  { id: 7, title: 'Plan meals for the week', category: 'Planning', groupId: 'health', due: 'Tomorrow', dueDate: tomorrowDate, completed: false },
+]
+
+const initialGroups = [
+  { id: 'coding', name: 'Coding', type: 'Coding' },
+  { id: 'health', name: 'Health', type: 'Health' },
+  { id: 'personal', name: 'Personal', type: 'Personal' },
 ]
 
 const viewTitles = {
   overview: 'Today’s overview',
   tasks: 'My tasks',
   completed: 'Completed tasks',
+  group: 'Group tasks',
 }
 
-function Dashboard() {
+function toDateKey(date) {
+  return toLocalDateString(date)
+}
+
+function getScheduleLabel(task, currentTime) {
+  const todayDate = toLocalDateString(currentTime)
+  if (!task.dueDate) return 'No due date'
+  if (!task.completed && (
+    task.dueDate < todayDate
+    || (task.dueDate === todayDate
+      && task.dueTime
+      && new Date(`${task.dueDate}T${task.dueTime}:00`) < currentTime)
+  )) return 'Overdue'
+  if (task.dueDate === todayDate) return 'Today'
+
+  const tomorrow = new Date(`${todayDate}T00:00:00`)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  if (task.dueDate === toDateKey(tomorrow)) return 'Tomorrow'
+
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  }).format(new Date(`${task.dueDate}T00:00:00`))
+}
+
+function getTaskDueLabel(task, currentTime) {
+  const dateLabel = getScheduleLabel(task, currentTime)
+  if (!task.dueTime) return dateLabel
+
+  const timeLabel = new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(`2000-01-01T${task.dueTime}:00`))
+  return `${dateLabel} · ${timeLabel}`
+}
+
+function Dashboard({ user, onProfile, onLogout }) {
   const [tasks, setTasks] = useState(initialTasks)
+  const [groups, setGroups] = useState(initialGroups)
   const [activeView, setActiveView] = useState('overview')
+  const [activeGroupId, setActiveGroupId] = useState('')
   const [search, setSearch] = useState('')
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
+  const [isGroupFormOpen, setIsGroupFormOpen] = useState(false)
+  const [defaultGroupId, setDefaultGroupId] = useState('')
+  const [editingTask, setEditingTask] = useState(null)
+  const [deletingTask, setDeletingTask] = useState(null)
   const [currentTime, setCurrentTime] = useState(() => new Date())
   useEffect(() => {
     const timerId = window.setInterval(() => setCurrentTime(new Date()), 30_000)
@@ -61,16 +114,74 @@ function Dashboard() {
   const progress = tasks.length === 0 ? 0 : Math.round((completedCount / tasks.length) * 100)
   const activeProgress = tasks.length === 0 ? 0 : Math.round((activeCount / tasks.length) * 100)
   const overdueProgress = tasks.length === 0 ? 0 : Math.round((overdueCount / tasks.length) * 100)
+  const searchTerm = search.trim().toLowerCase()
+  const getGroup = (groupId) => groups.find((group) => group.id === groupId)
+  const getGroupName = (groupId) => getGroup(groupId)?.name ?? 'Unassigned'
+  const matchesSearch = (task) => (
+    `${task.title} ${task.category} ${getGroupName(task.groupId)} ${getGroup(task.groupId)?.type ?? ''}`
+      .toLowerCase()
+      .includes(searchTerm)
+  )
   const visibleTasks = tasks.filter((task) => {
     const matchesView =
-      activeView === 'completed'
+      activeView === 'group'
+        ? task.groupId === activeGroupId
+        : activeView === 'completed'
         ? task.completed
         : activeView === 'tasks'
           ? !task.completed
           : true
-    const matchesSearch = task.title.toLowerCase().includes(search.trim().toLowerCase())
-    return matchesView && matchesSearch
+    return matchesView && matchesSearch(task)
+  }).map((task) => ({
+    ...task,
+    groupName: getGroupName(task.groupId),
+    groupType: getGroup(task.groupId)?.type ?? 'Other',
+    due: getTaskDueLabel(task, currentTime),
+  }))
+  const groupsWithTasks = groups.map((group) => {
+    const groupTasks = tasks
+      .filter((task) => task.groupId === group.id && matchesSearch(task))
+      .map((task) => ({
+        ...task,
+        groupName: group.name,
+        groupType: group.type,
+        due: getTaskDueLabel(task, currentTime),
+      }))
+      .sort((first, second) => {
+        const firstDate = first.dueDate || '9999-12-31'
+        const secondDate = second.dueDate || '9999-12-31'
+        return firstDate.localeCompare(secondDate)
+          || (first.dueTime || '99:99').localeCompare(second.dueTime || '99:99')
+      })
+    const scheduleSections = groupTasks.reduce((sections, task) => {
+      const label = getScheduleLabel(task, currentTime)
+      const section = sections.find((item) => item.title === label)
+      if (section) section.tasks.push(task)
+      else sections.push({ title: label, tasks: [task] })
+      return sections
+    }, [])
+
+    return {
+      ...group,
+      tasks: groupTasks,
+      activeCount: groupTasks.filter((task) => !task.completed).length,
+      scheduleSections,
+    }
   })
+  const selectedGroup = groupsWithTasks.find((group) => group.id === activeGroupId)
+  const groupTaskCounts = Object.fromEntries(
+    groups.map((group) => [group.id, tasks.filter((task) => task.groupId === group.id).length]),
+  )
+
+  function navigateToView(view) {
+    setActiveGroupId('')
+    setActiveView(view)
+  }
+
+  function navigateToGroup(groupId) {
+    setActiveGroupId(groupId)
+    setActiveView('group')
+  }
 
   function toggleTask(taskId) {
     setTasks((currentTasks) =>
@@ -85,23 +196,78 @@ function Dashboard() {
       { id: crypto.randomUUID(), ...taskDetails, completed: false },
       ...currentTasks,
     ])
-    setActiveView('tasks')
     setSearch('')
     setIsTaskFormOpen(false)
+  }
+
+  function saveTask(taskDetails) {
+    if (editingTask) {
+      setTasks((currentTasks) =>
+        currentTasks.map((task) =>
+          task.id === editingTask.id ? { ...task, ...taskDetails } : task,
+        ),
+      )
+      setEditingTask(null)
+      setIsTaskFormOpen(false)
+      return
+    }
+
+    addTask(taskDetails)
+  }
+
+  function openAddTask(groupId = '') {
+    setEditingTask(null)
+    setDefaultGroupId(groupId || groups[0]?.id || '')
+    setIsTaskFormOpen(true)
+  }
+
+  function openEditTask(task) {
+    setEditingTask(task)
+    setDefaultGroupId(task.groupId)
+    setIsTaskFormOpen(true)
+  }
+
+  function closeTaskForm() {
+    setIsTaskFormOpen(false)
+    setEditingTask(null)
+  }
+
+  function createGroup(name, type) {
+    if (groups.some((group) => group.name.toLowerCase() === name.toLowerCase())) return false
+
+    const newGroup = { id: crypto.randomUUID(), name, type }
+    setGroups((currentGroups) => [...currentGroups, newGroup])
+    setDefaultGroupId(newGroup.id)
+    setIsGroupFormOpen(false)
+    navigateToGroup(newGroup.id)
+    return true
+  }
+
+  function confirmDeleteTask() {
+    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== deletingTask.id))
+    setDeletingTask(null)
   }
 
   return (
     <div id="dashboard" className="flex min-h-screen bg-slate-50">
       <Sidebar
         activeView={activeView}
-        onNavigate={setActiveView}
+        activeGroupId={activeGroupId}
+        groups={groups}
+        groupTaskCounts={groupTaskCounts}
+        onNavigate={navigateToView}
+        onNavigateGroup={navigateToGroup}
+        onAddGroup={() => setIsGroupFormOpen(true)}
         completedCount={completedCount}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <Navbar
           search={search}
           onSearchChange={setSearch}
-          onAddTask={() => setIsTaskFormOpen(true)}
+          onAddTask={openAddTask}
+          user={user}
+          onProfile={onProfile}
+          onLogout={onLogout}
         />
         <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-7 sm:px-8 sm:py-10">
           {/* <section className="mb-8 flex flex-wrap items-end justify-between gap-4">
@@ -249,34 +415,191 @@ function Dashboard() {
             </div>
           </section>
 
-          <section aria-labelledby="task-list-heading" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40 sm:p-6">
+          <section aria-labelledby="task-list-heading" className={activeView === 'overview' ? '' : 'rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40 sm:p-6'}>
             <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 id="task-list-heading" className="text-lg font-bold text-slate-900">
-                  {viewTitles[activeView]}
+                  {activeView === 'group' ? selectedGroup?.name ?? 'Group tasks' : viewTitles[activeView]}
                   <span className="ml-2 text-sm font-semibold text-slate-500">{today}</span>
                 </h2>
                 <p className="mt-1 text-sm text-slate-400">
-                  {activeView === 'completed' ? 'A look at what you’ve accomplished.' : 'Keep your priorities moving forward.'}
+                  {activeView === 'overview'
+                    ? 'Your tasks are organized by group, then scheduled automatically by day and time.'
+                    : activeView === 'group'
+                      ? `${selectedGroup?.type ?? 'Group'} group · Tasks sorted by schedule.`
+                    : activeView === 'completed'
+                      ? 'A look at what you’ve accomplished.'
+                      : 'Keep your priorities moving forward.'}
                 </p>
               </div>
-              <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
-                {visibleTasks.length} {visibleTasks.length === 1 ? 'task' : 'tasks'}
-              </span>
+              <div className="flex items-center gap-2">
+                {(activeView === 'overview' || activeView === 'group') && (
+                  <button
+                    type="button"
+                    onClick={activeView === 'group'
+                      ? () => openAddTask(activeGroupId)
+                      : () => setIsGroupFormOpen(true)}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700 transition hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-100"
+                  >
+                    {activeView === 'overview' ? (
+                      <>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" aria-hidden="true">
+                          <path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h3l2 2h6A2.5 2.5 0 0 1 20 9.5v7a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9Z" strokeLinejoin="round" />
+                          <path d="M12 10v6m-3-3h6" strokeLinecap="round" />
+                        </svg>
+                        Add group
+                      </>
+                    ) : (
+                      <>
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-4" aria-hidden="true">
+                          <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                        </svg>
+                        Add task
+                      </>
+                    )}
+                  </button>
+                )}
+                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
+                  {visibleTasks.length} {visibleTasks.length === 1 ? 'task' : 'tasks'}
+                </span>
+              </div>
             </div>
-            <TaskList
-              tasks={visibleTasks}
-              onToggle={toggleTask}
-              emptyMessage={search ? 'No tasks match your search.' : 'Nothing to show here yet.'}
-            />
+            {activeView === 'overview' ? (
+              <div className="grid items-start gap-4 xl:grid-cols-2">
+                {groupsWithTasks.map((group) => (
+                  <section key={group.id} aria-label={`${group.name} group`} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40 sm:p-6">
+                    <div className="mb-5 flex items-center justify-between gap-3 border-b border-slate-100 pb-4">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-bold text-slate-900">{group.name}</h3>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {group.type} · {group.tasks.length} {group.tasks.length === 1 ? 'task' : 'tasks'} · {group.activeCount} active
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openAddTask(group.id)}
+                        className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-lg bg-violet-50 px-3 text-xs font-semibold text-violet-700 transition hover:bg-violet-100 focus:outline-none focus:ring-4 focus:ring-violet-100"
+                      >
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-3.5" aria-hidden="true">
+                          <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+                        </svg>
+                        Add task
+                      </button>
+                    </div>
+                    {group.scheduleSections.length === 0 ? (
+                      <p className="rounded-xl border border-dashed border-slate-200 px-4 py-7 text-center text-sm text-slate-500">
+                        {search ? 'No tasks match your search.' : `No tasks in ${group.name} yet. Add one to get started.`}
+                      </p>
+                    ) : (
+                      <div className="space-y-5">
+                        {group.scheduleSections.map((section) => (
+                          <section key={`${group.id}-${section.title}`} aria-label={`${group.name} tasks: ${section.title}`}>
+                            <h4 className="mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                              <span className={`size-2 rounded-full ${section.title === 'Overdue' ? 'bg-rose-500' : section.title === 'Today' ? 'bg-violet-500' : 'bg-slate-300'}`} />
+                              {section.title}
+                            </h4>
+                            <TaskList
+                              tasks={section.tasks}
+                              onToggle={toggleTask}
+                              onEdit={openEditTask}
+                              onDelete={setDeletingTask}
+                              emptyMessage="No tasks scheduled."
+                            />
+                          </section>
+                        ))}
+                      </div>
+                    )}
+                  </section>
+                ))}
+              </div>
+            ) : activeView === 'group' && selectedGroup ? (
+              selectedGroup.scheduleSections.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-200 px-4 py-10 text-center text-sm text-slate-500">
+                  {search ? 'No tasks match your search.' : `No tasks in ${selectedGroup.name} yet. Add one to get started.`}
+                </p>
+              ) : (
+                <div className="space-y-6">
+                  {selectedGroup.scheduleSections.map((section) => (
+                    <section key={`${selectedGroup.id}-${section.title}`} aria-label={`${selectedGroup.name} tasks: ${section.title}`}>
+                      <h3 className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-wide text-slate-500">
+                        <span className={`size-2 rounded-full ${section.title === 'Overdue' ? 'bg-rose-500' : section.title === 'Today' ? 'bg-violet-500' : 'bg-slate-300'}`} />
+                        {section.title}
+                      </h3>
+                      <TaskList
+                        tasks={section.tasks}
+                        onToggle={toggleTask}
+                        onEdit={openEditTask}
+                        onDelete={setDeletingTask}
+                        emptyMessage="No tasks scheduled."
+                      />
+                    </section>
+                  ))}
+                </div>
+              )
+            ) : (
+              <TaskList
+                tasks={visibleTasks}
+                onToggle={toggleTask}
+                onEdit={openEditTask}
+                onDelete={setDeletingTask}
+                emptyMessage={search ? 'No tasks match your search.' : 'Nothing to show here yet.'}
+              />
+            )}
           </section>
         </main>
       </div>
       {isTaskFormOpen && (
         <TaskForm
-          onSubmit={addTask}
-          onClose={() => setIsTaskFormOpen(false)}
+          key={editingTask?.id ?? 'new-task'}
+          initialTask={editingTask}
+          groups={groups}
+          defaultGroupId={defaultGroupId}
+          onSubmit={saveTask}
+          onClose={closeTaskForm}
         />
+      )}
+      {isGroupFormOpen && (
+        <GroupForm
+          onSubmit={createGroup}
+          onClose={() => setIsGroupFormOpen(false)}
+        />
+      )}
+      {deletingTask && (
+        <div
+          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setDeletingTask(null)
+          }}
+        >
+          <section
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-task-heading"
+            aria-describedby="delete-task-description"
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-2xl shadow-slate-900/20"
+          >
+            <h2 id="delete-task-heading" className="text-lg font-bold text-slate-900">Delete this task?</h2>
+            <p id="delete-task-description" className="mt-2 break-words text-sm leading-6 text-slate-500">
+              “{deletingTask.title}” will be permanently removed from your task list.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setDeletingTask(null)}
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDeleteTask}
+                className="rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-rose-700 focus:outline-none focus:ring-4 focus:ring-rose-200"
+              >
+                Delete task
+              </button>
+            </div>
+          </section>
+        </div>
       )}
     </div>
   )

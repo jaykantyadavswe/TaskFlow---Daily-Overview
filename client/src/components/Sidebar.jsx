@@ -33,7 +33,16 @@ const navigationItems = [
   },
 ]
 
-function Sidebar({ activeView, onNavigate, completedCount }) {
+function Sidebar({
+  activeView,
+  activeGroupId,
+  groups,
+  groupTaskCounts,
+  onNavigate,
+  onNavigateGroup,
+  onAddGroup,
+  completedCount,
+}) {
   return (
     <aside className="flex min-h-screen w-[76px] shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-5 sm:w-64 sm:px-5">
       <a href="#dashboard" className="mb-10 flex items-center gap-3 px-1" aria-label="TaskFlow home">
@@ -77,6 +86,58 @@ function Sidebar({ activeView, onNavigate, completedCount }) {
           )
         })}
       </nav>
+
+      <div className="mt-8">
+        <div className="mb-3 flex items-center justify-between px-3">
+          <p className="hidden text-[11px] font-bold uppercase tracking-[0.16em] text-slate-400 sm:block">
+            Groups
+          </p>
+          <button
+            type="button"
+            onClick={onAddGroup}
+            aria-label="Add group"
+            title="Add group"
+            className="grid size-8 place-items-center rounded-lg text-slate-400 transition hover:bg-violet-50 hover:text-violet-700 focus:outline-none focus:ring-2 focus:ring-violet-200"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="size-4" aria-hidden="true">
+              <path d="M12 5v14M5 12h14" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
+        <nav aria-label="Task groups" className="space-y-1">
+          {groups.map((group) => {
+            const isActive = activeView === 'group' && activeGroupId === group.id
+
+            return (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => onNavigateGroup(group.id)}
+                aria-current={isActive ? 'page' : undefined}
+                title={`${group.name} · ${group.type}`}
+                className={`flex w-full items-center justify-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors sm:justify-start ${
+                  isActive
+                    ? 'bg-violet-50 text-violet-700'
+                    : 'text-slate-500 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+              >
+                <span className={`grid size-5 shrink-0 place-items-center rounded-md text-[10px] font-bold ${
+                  isActive ? 'bg-violet-100 text-violet-700' : 'bg-slate-100 text-slate-500'
+                }`}>
+                  {group.name.slice(0, 1).toUpperCase()}
+                </span>
+                <span className="hidden min-w-0 flex-1 truncate text-left sm:inline">{group.name}</span>
+                <span className="hidden rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 sm:inline">
+                  {groupTaskCounts[group.id] ?? 0}
+                </span>
+              </button>
+            )
+          })}
+          {groups.length === 0 && (
+            <p className="hidden px-3 text-xs text-slate-400 sm:block">Create a group to organize tasks.</p>
+          )}
+        </nav>
+      </div>
 
       <div className="mt-auto hidden rounded-2xl bg-slate-900 p-4 text-white sm:block">
         <div className="mb-3 grid size-9 place-items-center rounded-xl bg-white/10 text-violet-200">

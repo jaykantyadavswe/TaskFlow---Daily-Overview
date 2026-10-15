@@ -11,9 +11,10 @@ function getInitials(name) {
 
 function ProfilePage({ user, onBack, onSave, onLogout, storageError }) {
   const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
   const [error, setError] = useState('')
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
     const formData = new FormData(event.currentTarget)
     const name = formData.get('name').toString().trim()
@@ -24,11 +25,15 @@ function ProfilePage({ user, onBack, onSave, onLogout, storageError }) {
       return
     }
 
-    if (onSave({ ...user, name, email })) {
+    setIsSaving(true)
+    try {
+      await onSave({ name, email })
       setError('')
       setIsEditing(false)
-    } else {
-      setError('Your changes could not be saved. Please try again.')
+    } catch (saveError) {
+      setError(saveError.message)
+    } finally {
+      setIsSaving(false)
     }
   }
 
@@ -93,6 +98,7 @@ function ProfilePage({ user, onBack, onSave, onLogout, storageError }) {
                 <div className="flex flex-wrap justify-end gap-3 border-t border-slate-100 pt-5">
                   <button
                     type="button"
+                    disabled={isSaving}
                     onClick={() => {
                       setError('')
                       setIsEditing(false)
@@ -103,9 +109,10 @@ function ProfilePage({ user, onBack, onSave, onLogout, storageError }) {
                   </button>
                   <button
                     type="submit"
-                    className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
+                    disabled={isSaving}
+                    className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-wait disabled:opacity-60"
                   >
-                    Save changes
+                    {isSaving ? 'Saving…' : 'Save changes'}
                   </button>
                 </div>
               </form>

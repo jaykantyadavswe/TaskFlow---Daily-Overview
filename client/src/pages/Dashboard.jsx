@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
 import GroupForm from '../components/GroupForm'
 import Sidebar from '../components/Sidebar'
+import TaskBoard from '../components/TaskBoard'
 import TaskForm from '../components/TaskForm'
 import TaskList from '../components/TaskList'
 import Navbar from '../layout/Navbar'
+import { taskApi } from '../services/taskApi'
 
 function toLocalDateString(date) {
   const year = date.getFullYear()
@@ -12,30 +14,9 @@ function toLocalDateString(date) {
   return `${year}-${month}-${day}`
 }
 
-const todayDate = toLocalDateString(new Date())
-const tomorrow = new Date()
-tomorrow.setDate(tomorrow.getDate() + 1)
-const tomorrowDate = toLocalDateString(tomorrow)
-
-const initialTasks = [
-  { id: 1, title: 'Finalize the new dashboard design', category: 'Design', groupId: 'coding', due: 'Today · 10:30 AM', dueDate: todayDate, dueTime: '10:30', completed: false },
-  { id: 2, title: 'Review Q4 product roadmap', category: 'Product', groupId: 'coding', due: 'Today · 12:00 PM', dueDate: todayDate, dueTime: '12:00', completed: false },
-  { id: 3, title: 'Share project update with the team', category: 'Planning', groupId: 'coding', due: 'Today · 2:00 PM', dueDate: todayDate, dueTime: '14:00', completed: true },
-  { id: 4, title: 'Prepare notes for the weekly sync', category: 'Planning', groupId: 'coding', due: 'Today · 4:30 PM', dueDate: todayDate, dueTime: '16:30', completed: false },
-  { id: 5, title: 'Organize inspiration board', category: 'Personal', groupId: 'personal', due: 'Tomorrow', dueDate: tomorrowDate, completed: true },
-  { id: 6, title: 'Take a morning walk', category: 'Personal', groupId: 'health', due: 'Today · 7:00 AM', dueDate: todayDate, dueTime: '07:00', completed: false },
-  { id: 7, title: 'Plan meals for the week', category: 'Planning', groupId: 'health', due: 'Tomorrow', dueDate: tomorrowDate, completed: false },
-]
-
-const initialGroups = [
-  { id: 'coding', name: 'Coding', type: 'Coding' },
-  { id: 'health', name: 'Health', type: 'Health' },
-  { id: 'personal', name: 'Personal', type: 'Personal' },
-]
-
 const viewTitles = {
   overview: 'Today’s overview',
-  tasks: 'My tasks',
+  tasks: 'All tasks',
   completed: 'Completed tasks',
   group: 'Group tasks',
 }
@@ -77,10 +58,15 @@ function getTaskDueLabel(task, currentTime) {
   return `${dateLabel} · ${timeLabel}`
 }
 
-function Dashboard({ user, onProfile, onLogout }) {
-  const [tasks, setTasks] = useState(initialTasks)
-  const [groups, setGroups] = useState(initialGroups)
+function Dashboard({ user, token, onProfile, onLogout }) {
+  const [tasks, setTasks] = useState([])
+  const [groups, setGroups] = useState([])
+  const [workspaceLoading, setWorkspaceLoading] = useState(true)
+  const [workspaceError, setWorkspaceError] = useState('')
   const [activeView, setActiveView] = useState('overview')
+  const [viewMode, setViewMode] = useState('list')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [priorityFilter, setPriorityFilter] = useState('all')
   const [activeGroupId, setActiveGroupId] = useState('')
   const [search, setSearch] = useState('')
   const [isTaskFormOpen, setIsTaskFormOpen] = useState(false)
@@ -93,6 +79,33 @@ function Dashboard({ user, onProfile, onLogout }) {
     const timerId = window.setInterval(() => setCurrentTime(new Date()), 30_000)
     return () => window.clearInterval(timerId)
   }, [])
+
+  useEffect(() => {
+    let isMounted = true
+    taskApi.getWorkspace(token)
+      .then((workspace) => {
+        if (!isMounted) return
+        setTasks(workspace.tasks)
+        setGroups(workspace.groups)
+        setWorkspaceError('')
+      })
+      .catch((error) => {
+        if (isMounted) setWorkspaceError(error.message)
+      })
+      .finally(() => {
+        if (isMounted) setWorkspaceLoading(false)
+      })
+    return () => { isMounted = false }
+  }, [token])
+
+  async function runWorkspaceMutation(mutation) {
+    try {
+      await mutation()
+      setWorkspaceError('')
+    } catch (error) {
+      setWorkspaceError(error.message)
+    }
+  }
 
   const today = new Intl.DateTimeFormat('en-US', {
     weekday: 'long',
@@ -118,7 +131,7 @@ function Dashboard({ user, onProfile, onLogout }) {
   const getGroup = (groupId) => groups.find((group) => group.id === groupId)
   const getGroupName = (groupId) => getGroup(groupId)?.name ?? 'Unassigned'
   const matchesSearch = (task) => (
-    `${task.title} ${task.category} ${getGroupName(task.groupId)} ${getGroup(task.groupId)?.type ?? ''}`
+    `${task.title} ${task.description ?? ''} ${task.category} ${task.priority ?? ''} ${(task.labels ?? []).join(' ')} ${getGroupName(task.groupId)} ${getGroup(task.groupId)?.type ?? ''}`
       .toLowerCase()
       .includes(searchTerm)
   )
@@ -129,9 +142,11 @@ function Dashboard({ user, onProfile, onLogout }) {
         : activeView === 'completed'
         ? task.completed
         : activeView === 'tasks'
-          ? !task.completed
+          ? true
           : true
-    return matchesView && matchesSearch(task)
+    const matchesStatus = statusFilter === 'all' || task.status === statusFilter
+    const matchesPriority = priorityFilter === 'all' || task.priority === priorityFilter
+    return matchesView && matchesSearch(task) && matchesStatus && matchesPriority
   }).map((task) => ({
     ...task,
     groupName: getGroupName(task.groupId),
@@ -140,7 +155,12 @@ function Dashboard({ user, onProfile, onLogout }) {
   }))
   const groupsWithTasks = groups.map((group) => {
     const groupTasks = tasks
-      .filter((task) => task.groupId === group.id && matchesSearch(task))
+      .filter((task) => (
+        task.groupId === group.id
+        && matchesSearch(task)
+        && (statusFilter === 'all' || task.status === statusFilter)
+        && (priorityFilter === 'all' || task.priority === priorityFilter)
+      ))
       .map((task) => ({
         ...task,
         groupName: group.name,
@@ -176,43 +196,69 @@ function Dashboard({ user, onProfile, onLogout }) {
   function navigateToView(view) {
     setActiveGroupId('')
     setActiveView(view)
+    setStatusFilter('all')
+    setPriorityFilter('all')
   }
 
   function navigateToGroup(groupId) {
     setActiveGroupId(groupId)
     setActiveView('group')
+    setStatusFilter('all')
+    setPriorityFilter('all')
   }
 
   function toggleTask(taskId) {
-    setTasks((currentTasks) =>
-      currentTasks.map((task) =>
-        task.id === taskId ? { ...task, completed: !task.completed } : task,
-      ),
-    )
+    const task = tasks.find((item) => item.id === taskId)
+    if (!task) return
+    runWorkspaceMutation(async () => {
+      const { task: updatedTask } = await taskApi.updateTask(token, taskId, { completed: !task.completed })
+      setTasks((currentTasks) => currentTasks.map((item) => item.id === taskId ? updatedTask : item))
+    })
   }
 
-  function addTask(taskDetails) {
-    setTasks((currentTasks) => [
-      { id: crypto.randomUUID(), ...taskDetails, completed: false },
-      ...currentTasks,
-    ])
-    setSearch('')
-    setIsTaskFormOpen(false)
+  function changeTaskStatus(taskId, status) {
+    runWorkspaceMutation(async () => {
+      const { task: updatedTask } = await taskApi.updateTask(token, taskId, {
+        status,
+        completed: status === 'done',
+      })
+      setTasks((currentTasks) => currentTasks.map((task) => task.id === taskId ? updatedTask : task))
+    })
   }
 
-  function saveTask(taskDetails) {
-    if (editingTask) {
-      setTasks((currentTasks) =>
-        currentTasks.map((task) =>
-          task.id === editingTask.id ? { ...task, ...taskDetails } : task,
-        ),
-      )
-      setEditingTask(null)
+  async function addTask(taskDetails) {
+    try {
+      const taskPayload = { ...taskDetails }
+      delete taskPayload.due
+      const { task } = await taskApi.createTask(token, taskPayload)
+      setTasks((currentTasks) => [task, ...currentTasks])
+      setSearch('')
       setIsTaskFormOpen(false)
+      setWorkspaceError('')
+    } catch (error) {
+      setWorkspaceError(error.message)
+      throw error
+    }
+  }
+
+  async function saveTask(taskDetails) {
+    if (editingTask) {
+      try {
+        const taskPayload = { ...taskDetails }
+        delete taskPayload.due
+        const { task } = await taskApi.updateTask(token, editingTask.id, taskPayload)
+        setTasks((currentTasks) => currentTasks.map((item) => item.id === editingTask.id ? task : item))
+        setEditingTask(null)
+        setIsTaskFormOpen(false)
+        setWorkspaceError('')
+      } catch (error) {
+        setWorkspaceError(error.message)
+        throw error
+      }
       return
     }
 
-    addTask(taskDetails)
+    await addTask(taskDetails)
   }
 
   function openAddTask(groupId = '') {
@@ -232,24 +278,32 @@ function Dashboard({ user, onProfile, onLogout }) {
     setEditingTask(null)
   }
 
-  function createGroup(name, type) {
-    if (groups.some((group) => group.name.toLowerCase() === name.toLowerCase())) return false
-
-    const newGroup = { id: crypto.randomUUID(), name, type }
-    setGroups((currentGroups) => [...currentGroups, newGroup])
-    setDefaultGroupId(newGroup.id)
+  async function createGroup(name, type) {
+    const { group } = await taskApi.createGroup(token, { name, type })
+    setGroups((currentGroups) => [...currentGroups, group])
+    setDefaultGroupId(group.id)
     setIsGroupFormOpen(false)
-    navigateToGroup(newGroup.id)
-    return true
+    navigateToGroup(group.id)
   }
 
   function confirmDeleteTask() {
-    setTasks((currentTasks) => currentTasks.filter((task) => task.id !== deletingTask.id))
-    setDeletingTask(null)
+    runWorkspaceMutation(async () => {
+      await taskApi.deleteTask(token, deletingTask.id)
+      setTasks((currentTasks) => currentTasks.filter((task) => task.id !== deletingTask.id))
+      setDeletingTask(null)
+    })
+  }
+
+  if (workspaceLoading) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-[#f6f7fb] text-sm font-medium text-slate-500">
+        Loading your workspace…
+      </main>
+    )
   }
 
   return (
-    <div id="dashboard" className="flex min-h-screen bg-slate-50">
+    <div id="dashboard" className="flex min-h-screen bg-[#f6f7fb]">
       <Sidebar
         activeView={activeView}
         activeGroupId={activeGroupId}
@@ -264,30 +318,39 @@ function Dashboard({ user, onProfile, onLogout }) {
         <Navbar
           search={search}
           onSearchChange={setSearch}
-          onAddTask={openAddTask}
+          onAddTask={() => openAddTask()}
           user={user}
           onProfile={onProfile}
           onLogout={onLogout}
         />
-        <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-7 sm:px-8 sm:py-10">
-          {/* <section className="mb-8 flex flex-wrap items-end justify-between gap-4">
+        <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-8 sm:py-9">
+          {workspaceError && (
+            <p role="alert" className="mb-5 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+              {workspaceError}
+            </p>
+          )}
+          <section className="mb-7 flex flex-wrap items-end justify-between gap-4">
             <div>
-              <p className="mb-2 text-sm font-medium text-violet-600">{today}</p>
+              <p className="mb-1.5 text-sm font-semibold text-violet-700">{today}</p>
               <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-                {viewTitles[activeView]}
+                {activeView === 'group' ? selectedGroup?.name ?? viewTitles.group : viewTitles[activeView]}
               </h1>
               <p className="mt-2 text-sm text-slate-500">
-                A clear plan makes for a calmer, more productive day.
+                {activeView === 'overview'
+                  ? 'A clear plan makes for a calmer, more productive day.'
+                  : activeView === 'completed'
+                    ? 'Look back at the progress you’ve made.'
+                    : 'Keep your priorities moving forward.'}
               </p>
             </div>
-            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 shadow-sm">
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200/80 bg-white px-3.5 py-2 text-xs font-semibold text-slate-600 shadow-sm shadow-slate-200/40">
               <span className="size-2 rounded-full bg-emerald-500" />
-              Your workspace is up to date
+              Your workspace
             </span>
-          </section> */}
+          </section>
 
-          <section aria-label="Task summary" className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40">
+          <section aria-label="Task summary" className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40 transition-all hover:-translate-y-0.5 hover:shadow-md">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-500">Total tasks</p>
                 <span className="grid size-9 place-items-center rounded-xl bg-violet-50 text-violet-600">
@@ -301,7 +364,7 @@ function Dashboard({ user, onProfile, onLogout }) {
               <p className="mt-1 text-xs text-slate-400">Across your workspace</p>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40">
+            <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40 transition-all hover:-translate-y-0.5 hover:shadow-md">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-500">In progress</p>
                 <span className="grid size-9 place-items-center rounded-xl bg-amber-50 text-amber-600">
@@ -315,7 +378,7 @@ function Dashboard({ user, onProfile, onLogout }) {
               <p className="mt-1 text-xs text-slate-400">Ready for you to tackle</p>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40">
+            <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40 transition-all hover:-translate-y-0.5 hover:shadow-md">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-500">Completed</p>
                 <span className="grid size-9 place-items-center rounded-xl bg-emerald-50 text-emerald-600">
@@ -328,7 +391,7 @@ function Dashboard({ user, onProfile, onLogout }) {
               <p className="mt-1 text-xs text-slate-400">Nice work, keep it up</p>
             </article>
 
-            <article className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm shadow-slate-200/40">
+            <article className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm shadow-slate-200/40 transition-all hover:-translate-y-0.5 hover:shadow-md">
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium text-slate-500">Overdue</p>
                 <span className="grid size-9 place-items-center rounded-xl bg-rose-50 text-rose-600">
@@ -344,7 +407,7 @@ function Dashboard({ user, onProfile, onLogout }) {
             </article>
           </section>
 
-          <section aria-labelledby="progress-heading" className="mb-8 overflow-hidden rounded-2xl bg-gradient-to-br from-violet-700 via-violet-600 to-indigo-600 p-5 text-white shadow-lg shadow-violet-200/60 sm:p-7">
+          <section aria-labelledby="progress-heading" className="mb-8 overflow-hidden rounded-2xl bg-gradient-to-br from-[#312e81] via-violet-700 to-[#6d5ce7] p-5 text-white shadow-lg shadow-violet-200/60 sm:p-7">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-violet-100">Your daily progress</p>
@@ -459,11 +522,60 @@ function Dashboard({ user, onProfile, onLogout }) {
                     )}
                   </button>
                 )}
+                {activeView === 'tasks' && (
+                  <div className="inline-flex rounded-xl border border-slate-200 bg-slate-50 p-1" aria-label="Task display mode">
+                    {['list', 'board'].map((mode) => (
+                      <button
+                        key={mode}
+                        type="button"
+                        aria-pressed={viewMode === mode}
+                        onClick={() => setViewMode(mode)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold capitalize transition ${
+                          viewMode === mode ? 'bg-white text-violet-700 shadow-sm' : 'text-slate-500 hover:text-slate-800'
+                        }`}
+                      >
+                        {mode}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-500">
                   {visibleTasks.length} {visibleTasks.length === 1 ? 'task' : 'tasks'}
                 </span>
               </div>
             </div>
+            {(activeView === 'tasks' || activeView === 'group') && (
+              <div className="mb-5 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-4">
+                <label className="sr-only" htmlFor="task-status-filter">Filter by status</label>
+                <select
+                  id="task-status-filter"
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                >
+                  <option value="all">All statuses</option>
+                  <option value="todo">To do</option>
+                  <option value="in_progress">In progress</option>
+                  <option value="done">Done</option>
+                </select>
+                <label className="sr-only" htmlFor="task-priority-filter">Filter by priority</label>
+                <select
+                  id="task-priority-filter"
+                  value={priorityFilter}
+                  onChange={(event) => setPriorityFilter(event.target.value)}
+                  className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                >
+                  <option value="all">All priorities</option>
+                  <option value="urgent">Urgent</option>
+                  <option value="high">High</option>
+                  <option value="medium">Medium</option>
+                  <option value="low">Low</option>
+                </select>
+                <span className="ml-auto text-xs text-slate-400">
+                  {visibleTasks.length} {visibleTasks.length === 1 ? 'task' : 'tasks'} shown
+                </span>
+              </div>
+            )}
             {activeView === 'overview' ? (
               <div className="grid items-start gap-4 xl:grid-cols-2">
                 {groupsWithTasks.map((group) => (
@@ -503,6 +615,7 @@ function Dashboard({ user, onProfile, onLogout }) {
                               onToggle={toggleTask}
                               onEdit={openEditTask}
                               onDelete={setDeletingTask}
+                              onStatusChange={changeTaskStatus}
                               emptyMessage="No tasks scheduled."
                             />
                           </section>
@@ -530,18 +643,28 @@ function Dashboard({ user, onProfile, onLogout }) {
                         onToggle={toggleTask}
                         onEdit={openEditTask}
                         onDelete={setDeletingTask}
+                        onStatusChange={changeTaskStatus}
                         emptyMessage="No tasks scheduled."
                       />
                     </section>
                   ))}
                 </div>
               )
+            ) : activeView === 'tasks' && viewMode === 'board' ? (
+              <TaskBoard
+                tasks={visibleTasks}
+                onToggle={toggleTask}
+                onEdit={openEditTask}
+                onDelete={setDeletingTask}
+                onStatusChange={changeTaskStatus}
+              />
             ) : (
               <TaskList
                 tasks={visibleTasks}
                 onToggle={toggleTask}
                 onEdit={openEditTask}
                 onDelete={setDeletingTask}
+                onStatusChange={changeTaskStatus}
                 emptyMessage={search ? 'No tasks match your search.' : 'Nothing to show here yet.'}
               />
             )}
@@ -582,6 +705,7 @@ function Dashboard({ user, onProfile, onLogout }) {
             <p id="delete-task-description" className="mt-2 break-words text-sm leading-6 text-slate-500">
               “{deletingTask.title}” will be permanently removed from your task list.
             </p>
+            {workspaceError && <p role="alert" className="mt-3 text-sm font-medium text-rose-600">{workspaceError}</p>}
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"

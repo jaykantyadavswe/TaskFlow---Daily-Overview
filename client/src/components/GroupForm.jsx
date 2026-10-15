@@ -4,6 +4,7 @@ function GroupForm({ onSubmit, onClose }) {
   const [name, setName] = useState('')
   const [type, setType] = useState('')
   const [error, setError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   useEffect(() => {
     function handleKeyDown(event) {
@@ -14,7 +15,7 @@ function GroupForm({ onSubmit, onClose }) {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [onClose])
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault()
     const trimmedName = name.trim()
 
@@ -28,8 +29,13 @@ function GroupForm({ onSubmit, onClose }) {
       return
     }
 
-    if (!onSubmit(trimmedName, type)) {
-      setError('A group with this name already exists.')
+    setIsSubmitting(true)
+    try {
+      await onSubmit(trimmedName, type)
+    } catch (submitError) {
+      setError(submitError.message)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -120,9 +126,10 @@ function GroupForm({ onSubmit, onClose }) {
             </button>
             <button
               type="submit"
-              className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200"
+              disabled={isSubmitting}
+              className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-violet-200 transition hover:bg-violet-700 focus:outline-none focus:ring-4 focus:ring-violet-200 disabled:cursor-wait disabled:opacity-60"
             >
-              Create group
+              {isSubmitting ? 'Creating…' : 'Create group'}
             </button>
           </div>
         </form>

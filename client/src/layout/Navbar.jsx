@@ -42,7 +42,7 @@ function Navbar({ search, onSearchChange, onAddTask, user, onProfile, onLogout }
     .join('')
 
   return (
-    <header className="sticky top-0 z-10 flex h-[76px] shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 backdrop-blur sm:px-8">
+    <header className="sticky top-0 z-10 flex h-[76px] shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/90 px-4 backdrop-blur-xl sm:px-8">
       {/* <div className="hidden text-sm font-medium text-slate-400 sm:block">
         Workspace <span className="mx-2 text-slate-300">/</span>
         <span className="text-slate-700">{viewLabels[activeView]}</span>

@@ -3,41 +3,56 @@ import './App.css'
 import AuthPage from './pages/AuthPage'
 import Dashboard from './pages/Dashboard'
 import ProfilePage from './pages/ProfilePage'
+import { taskApi } from './services/taskApi'
 
-const USER_STORAGE_KEY = 'taskflow-demo-user'
+const TOKEN_STORAGE_KEY = 'taskflow-auth-token'
 
-function readStoredUser() {
+function readStoredToken() {
   try {
-    const storedUser = window.localStorage.getItem(USER_STORAGE_KEY)
-    if (!storedUser) return { user: null, error: '' }
-
-    const user = JSON.parse(storedUser)
-    if (
-      typeof user?.name !== 'string'
-      || typeof user?.email !== 'string'
-      || !user.name.trim()
-      || !user.email.trim()
-    ) {
-      throw new Error('Saved profile has an invalid format.')
-    }
-
-    return { user, error: '' }
+    return window.localStorage.getItem(TOKEN_STORAGE_KEY)
   } catch (error) {
-    console.error('Could not restore the TaskFlow demo profile.', error)
-    return {
-      user: null,
-      error: 'Your saved demo session could not be restored. Check browser storage and try again.',
-    }
+    console.error('Could not read the TaskFlow session token.', error)
+    return null
   }
 }
 
 function App() {
-  const [account, setAccount] = useState(readStoredUser)
+  const [initialToken] = useState(readStoredToken)
+  const [account, setAccount] = useState(() => ({
+    user: null,
+    token: initialToken,
+    loading: Boolean(initialToken),
+    error: '',
+  }))
   const [authMode, setAuthMode] = useState('signin')
   const [activePage, setActivePage] = useState('workspace')
   const [isLogoutConfirmationOpen, setIsLogoutConfirmationOpen] = useState(false)
   const logoutButtonRef = useRef(null)
-  const { user, error: storageError } = account
+  const { user, token, loading, error: accountError } = account
+
+  useEffect(() => {
+    let isMounted = true
+    if (!initialToken) return () => { isMounted = false }
+
+    taskApi.currentUser(initialToken)
+      .then(({ user: currentUser }) => {
+        if (isMounted) setAccount({ user: currentUser, token: initialToken, loading: false, error: '' })
+      })
+      .catch((requestError) => {
+        if (requestError.status === 401) {
+          try {
+            window.localStorage.removeItem(TOKEN_STORAGE_KEY)
+          } catch (storageError) {
+            console.error('Could not remove the expired TaskFlow session token.', storageError)
+          }
+        }
+        if (isMounted) {
+          setAccount({ user: null, token: null, loading: false, error: requestError.message })
+        }
+      })
+
+    return () => { isMounted = false }
+  }, [initialToken])
 
   useEffect(() => {
     if (!isLogoutConfirmationOpen) return undefined
@@ -51,50 +66,57 @@ function App() {
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isLogoutConfirmationOpen])
 
-  function handleAuthenticate(profile) {
+  async function handleAuthenticate(credentials, mode) {
+    const result = mode === 'signup'
+      ? await taskApi.signUp(credentials)
+      : await taskApi.signIn(credentials)
     try {
-      window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(profile))
-      setAccount({ user: profile, error: '' })
-      setActivePage('workspace')
-    } catch (error) {
-      console.error('Could not save the TaskFlow demo profile.', error)
-      setAccount((current) => ({
-        ...current,
-        error: 'Could not save your demo profile. Check browser storage and try again.',
-      }))
+      window.localStorage.setItem(TOKEN_STORAGE_KEY, result.token)
+    } catch (storageError) {
+      await taskApi.logout(result.token).catch((logoutError) => {
+        console.error('Could not revoke a session after browser storage failed.', logoutError)
+      })
+      throw new Error(
+        'Could not save your session in this browser. Check browser storage and try again.',
+        { cause: storageError },
+      )
     }
+    setAccount({ user: result.user, token: result.token, loading: false, error: '' })
+    setActivePage('workspace')
   }
 
-  function handleProfileUpdate(profile) {
-    try {
-      window.localStorage.setItem(USER_STORAGE_KEY, JSON.stringify(profile))
-      setAccount({ user: profile, error: '' })
-      return true
-    } catch (error) {
-      console.error('Could not update the TaskFlow demo profile.', error)
-      setAccount((current) => ({
-        ...current,
-        error: 'Could not save your profile changes. Check browser storage and try again.',
-      }))
-      return false
-    }
+  async function handleProfileUpdate(profile) {
+    const { user: updatedUser } = await taskApi.updateProfile(token, profile)
+    setAccount((current) => ({ ...current, user: updatedUser }))
+    return true
   }
 
-  function handleLogout() {
+  async function handleLogout() {
+    let logoutError = ''
     try {
-      window.localStorage.removeItem(USER_STORAGE_KEY)
-      setAccount({ user: null, error: '' })
-      setIsLogoutConfirmationOpen(false)
-      setActivePage('workspace')
-      setAuthMode('signin')
-    } catch (error) {
-      console.error('Could not clear the TaskFlow demo session.', error)
-      setAccount((current) => ({
-        ...current,
-        error: 'Could not clear the saved demo session. Check browser storage and try again.',
-      }))
-      setIsLogoutConfirmationOpen(false)
+      await taskApi.logout(token)
+    } catch (requestError) {
+      console.error('Could not revoke the TaskFlow session on the server.', requestError)
+      logoutError = `Your browser session was cleared, but server sign-out failed: ${requestError.message}`
     }
+    try {
+      window.localStorage.removeItem(TOKEN_STORAGE_KEY)
+    } catch (storageError) {
+      console.error('Could not clear the saved TaskFlow session.', storageError)
+      logoutError = `Could not clear the saved session from this browser: ${storageError.message}`
+    }
+    setAccount({ user: null, token: null, loading: false, error: logoutError })
+    setIsLogoutConfirmationOpen(false)
+    setActivePage('workspace')
+    setAuthMode('signin')
+  }
+
+  if (loading) {
+    return (
+      <main className="grid min-h-screen place-items-center bg-slate-50 text-sm font-medium text-slate-500">
+        Loading your TaskFlow workspace…
+      </main>
+    )
   }
 
   if (!user) {
@@ -103,7 +125,7 @@ function App() {
         mode={authMode}
         onModeChange={setAuthMode}
         onAuthenticate={handleAuthenticate}
-        storageError={storageError}
+        accountError={accountError}
       />
     )
   }
@@ -111,16 +133,17 @@ function App() {
   return (
     <>
       {activePage === 'profile' ? (
-      <ProfilePage
-        user={user}
-        onBack={() => setActivePage('workspace')}
-        onSave={handleProfileUpdate}
-        onLogout={() => setIsLogoutConfirmationOpen(true)}
-        storageError={storageError}
-      />
+        <ProfilePage
+          user={user}
+          onBack={() => setActivePage('workspace')}
+          onSave={handleProfileUpdate}
+          onLogout={() => setIsLogoutConfirmationOpen(true)}
+          storageError={accountError}
+        />
       ) : (
         <Dashboard
           user={user}
+          token={token}
           onProfile={() => setActivePage('profile')}
           onLogout={() => setIsLogoutConfirmationOpen(true)}
         />
@@ -141,9 +164,9 @@ function App() {
           >
             <h2 id="logout-heading" className="text-lg font-bold text-slate-900">Log out of TaskFlow?</h2>
             <p id="logout-description" className="mt-2 text-sm leading-6 text-slate-500">
-              Your demo profile will be removed from this browser. You can sign in again with any email.
+              You will need to sign in again to access your workspace.
             </p>
-            {storageError && <p role="alert" className="mt-3 text-sm font-medium text-rose-600">{storageError}</p>}
+            {accountError && <p role="alert" className="mt-3 text-sm font-medium text-rose-600">{accountError}</p>}
             <div className="mt-6 flex justify-end gap-3">
               <button
                 type="button"

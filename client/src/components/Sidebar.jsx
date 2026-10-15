@@ -13,7 +13,7 @@ const navigationItems = [
   },
   {
     id: 'tasks',
-    label: 'My tasks',
+    label: 'All tasks',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
         <path d="M8 6h12M8 12h12M8 18h12" strokeLinecap="round" />
@@ -44,7 +44,7 @@ function Sidebar({
   completedCount,
 }) {
   return (
-    <aside className="flex min-h-screen w-[76px] shrink-0 flex-col border-r border-slate-200 bg-white px-3 py-5 sm:w-64 sm:px-5">
+    <aside className="flex min-h-screen w-16 shrink-0 flex-col border-r border-slate-200/80 bg-white px-2 py-5 sm:w-[248px] sm:px-5">
       <a href="#dashboard" className="mb-10 flex items-center gap-3 px-1" aria-label="TaskFlow home">
         <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-violet-600 text-white shadow-lg shadow-violet-200">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="size-5" aria-hidden="true">

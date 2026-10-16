@@ -4,13 +4,13 @@ const taskSchema = new mongoose.Schema({
     title: {
         type: String,
         trim: true,
-        maxLength: 100,
-        required: true,
+        maxLength: 120,
+        required: [true, "Task title is required"],
     },
     description: {
         type: String,
         default: "",
-        maxLength: 500,
+        maxLength: 1000,
     },
     status: {
         type: String,
@@ -25,6 +25,7 @@ const taskSchema = new mongoose.Schema({
     category: {
         type: String,
         default: "General",
+        trim: true,
     },
     dueDate: {
         type: Date,
